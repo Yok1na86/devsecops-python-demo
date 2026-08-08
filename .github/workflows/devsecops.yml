@@ -27,6 +27,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # 2. Статический анализ Python-кода (SAST + SARIF)
+  # 2. Статический анализ Python-кода (SAST + SARIF)
   sast-python:
     name: SAST (Bandit)
     runs-on: ubuntu-latest
@@ -49,6 +50,7 @@ jobs:
 
       - name: Upload Bandit SARIF report
         uses: github/codeql-action/upload-sarif@v3
+        if: always() # Выполнить даже если на предыдущих шагах были ошибки
         with:
           sarif_file: bandit-results.sarif
           category: bandit

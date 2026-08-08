@@ -1,12 +1,13 @@
-import os
-import subprocess
+import sys
+
 
 def main():
-    print("DevSecOps Test App")
-    
-    # Искусственная уязвимость для Bandit (Command Injection)
-    user_input = "echo test"
-    subprocess.Popen(user_input, shell=True)
+    print("==========================================")
+    print("🚀 DevSecOps Demo Application")
+    print("==========================================")
+    print("App is running securely without vulnerabilities!")
+    print(f"Python Version: {sys.version}")
+
 
 if __name__ == "__main__":
     main()

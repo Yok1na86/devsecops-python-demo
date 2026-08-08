@@ -94,7 +94,7 @@ jobs:
           docker build -t my-python-app:${{ github.sha }} .
 
       - name: Run Trivy Scanner
-        uses: aquasecurity/trivy-action@v0.28.0
+        uses: aquasecurity/trivy-action@master
         continue-on-error: true
         with:
           image-ref: 'my-python-app:${{ github.sha }}'

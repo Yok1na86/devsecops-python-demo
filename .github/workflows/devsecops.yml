@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [ "main" ]
 
+permissions:
+  contents: read
+  security-events: write
+  packages: write
+
 jobs:
   # 1. Поиск утечек секретов
   secret-scan:
@@ -69,7 +74,7 @@ jobs:
           pip install pip-audit
           pip-audit || true
 
-  # 4. Проверка Docker и сканирование контейнера (Trivy)
+  # 4. Проверка Dockerfile и сканирование контейнера (Trivy)
   container-security:
     name: Docker Lint & Trivy Scan
     runs-on: ubuntu-latest
@@ -105,3 +110,54 @@ jobs:
         with:
           sarif_file: trivy-results.sarif
           category: trivy
+
+  # 5. Проверка IaC
+  iac-security:
+    name: IaC Security Scan (Trivy)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy IaC scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'config'
+          hide-progress: false
+          format: 'sarif'
+          output: 'trivy-iac-results.sarif'
+          exit-code: '0'
+
+      - name: Upload Trivy IaC SARIF report
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        continue-on-error: true
+        with:
+          sarif_file: trivy-iac-results.sarif
+          category: trivy-iac
+
+  # 6. Публикация в GHCR (только при коммите в main после успешных проверок)
+  build-and-push:
+    name: Build & Push to GHCR
+    runs-on: ubuntu-latest
+    needs: [secret-scan, sast-python, sca-dependencies, container-security, iac-security]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and Push Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}:latest
+            ghcr.io/${{ github.repository }}:${{ github.sha }}

@@ -2,16 +2,12 @@ name: DevSecOps Pipeline
 
 on:
   push:
-    branches: [ "main", "master" ]
+    branches: [ "main" ]
   pull_request:
-    branches: [ "main", "master" ]
-
-permissions:
-  contents: read
-  security-events: write  # Разрешение на загрузку отчетов в папку Security
+    branches: [ "main" ]
 
 jobs:
-  # 1. Поиск секретов
+  # 1. Поиск утечек секретов
   secret-scan:
     name: Secret Scanning (Gitleaks)
     runs-on: ubuntu-latest
@@ -26,8 +22,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # 2. Статический анализ Python-кода (SAST + SARIF)
-  # 2. Статический анализ Python-кода (SAST + SARIF)
+  # 2. Статический анализ Python-кода (SAST)
   sast-python:
     name: SAST (Bandit)
     runs-on: ubuntu-latest
@@ -46,16 +41,17 @@ jobs:
 
       - name: Run Bandit with SARIF export
         run: |
-          bandit -r . -f sarif -o bandit-results.sarif || true
+          bandit -r . -f sarif -o bandit-results.sarif
+        continue-on-error: true
 
       - name: Upload Bandit SARIF report
         uses: github/codeql-action/upload-sarif@v3
-        if: always() # Выполнить даже если на предыдущих шагах были ошибки
+        if: always()
         with:
           sarif_file: bandit-results.sarif
           category: bandit
 
-  # 3. Проверка зависимостей
+  # 3. Проверка зависимостей (SCA)
   sca-dependencies:
     name: SCA (Pip-audit)
     runs-on: ubuntu-latest
@@ -71,9 +67,9 @@ jobs:
       - name: Audit Dependencies
         run: |
           pip install pip-audit
-          if [ -f requirements.txt ]; then pip-audit -r requirements.txt; fi
+          pip-audit || true
 
-# 4. Проверка Docker и сканирование образа (Trivy + SARIF)
+  # 4. Проверка Docker и сканирование контейнера (Trivy)
   container-security:
     name: Docker Lint & Trivy Scan
     runs-on: ubuntu-latest

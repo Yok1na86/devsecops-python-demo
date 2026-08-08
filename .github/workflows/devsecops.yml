@@ -74,7 +74,7 @@ jobs:
           pip install pip-audit
           pip-audit || true
 
-  # 4. Проверка Dockerfile и сканирование контейнера (Trivy)
+  # 4. Проверка Docker и сканирование контейнера (Trivy)
   container-security:
     name: Docker Lint & Trivy Scan
     runs-on: ubuntu-latest
@@ -111,7 +111,7 @@ jobs:
           sarif_file: trivy-results.sarif
           category: trivy
 
-  # 5. Проверка IaC
+  # 5. Проверка безопасности инфраструктуры (IaC Scanning)
   iac-security:
     name: IaC Security Scan (Trivy)
     runs-on: ubuntu-latest
@@ -136,7 +136,7 @@ jobs:
           sarif_file: trivy-iac-results.sarif
           category: trivy-iac
 
-  # 6. Публикация в GHCR (только при коммите в main после успешных проверок)
+  # 6. Сборка и отправка безопасного Docker-образа в GHCR
   build-and-push:
     name: Build & Push to GHCR
     runs-on: ubuntu-latest

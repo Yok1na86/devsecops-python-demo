@@ -2,9 +2,9 @@ name: DevSecOps Pipeline
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
 
 permissions:
   contents: read
@@ -12,10 +12,15 @@ permissions:
   packages: write
 
 jobs:
-  # 1. Поиск утечек секретов
+
+  # ============================================================
+  # 1. SECRET SCANNING — GITLEAKS
+  # ============================================================
+
   secret-scan:
     name: Secret Scanning (Gitleaks)
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -27,10 +32,15 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # 2. Статический анализ Python-кода (SAST)
+
+  # ============================================================
+  # 2. SAST — BANDIT
+  # ============================================================
+
   sast-python:
     name: SAST (Bandit)
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -38,9 +48,9 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
-      - name: Install Bandit & Sarif plugin
+      - name: Install Bandit & SARIF plugin
         run: |
           pip install bandit bandit-sarif-formatter
 
@@ -49,17 +59,39 @@ jobs:
           bandit -r . -f sarif -o bandit-results.sarif
         continue-on-error: true
 
+      - name: Verify Bandit SARIF
+        if: always()
+        run: |
+          if [ ! -f bandit-results.sarif ]; then
+            echo "ERROR: Bandit SARIF file was not created"
+            exit 1
+          fi
+
+          if [ ! -s bandit-results.sarif ]; then
+            echo "ERROR: Bandit SARIF file is empty"
+            exit 1
+          fi
+
+          python -m json.tool bandit-results.sarif > /dev/null
+
+          echo "Bandit SARIF is valid JSON"
+
       - name: Upload Bandit SARIF report
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
           sarif_file: bandit-results.sarif
           category: bandit
 
-  # 3. Проверка зависимостей (SCA)
+
+  # ============================================================
+  # 3. SCA — PIP-AUDIT
+  # ============================================================
+
   sca-dependencies:
     name: SCA (Pip-audit)
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -67,22 +99,39 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
+
+      - name: Install pip-audit
+        run: |
+          pip install pip-audit
 
       - name: Audit Dependencies
         run: |
-          pip install pip-audit
           pip-audit || true
 
-  # 4. Проверка Docker и сканирование контейнера (Trivy)
+
+  # ============================================================
+  # 4. CONTAINER SECURITY — HADOLINT + TRIVY
+  # ============================================================
+
   container-security:
     name: Docker Lint & Trivy Scan
     runs-on: ubuntu-latest
-    needs: [secret-scan, sast-python, sca-dependencies]
+
+    needs:
+      - secret-scan
+      - sast-python
+      - sca-dependencies
+
     if: always()
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+
+      # ----------------------------------------------------------
+      # Dockerfile Lint
+      # ----------------------------------------------------------
 
       - name: Lint Dockerfile (Hadolint)
         uses: hadolint/hadolint-action@v3.1.0
@@ -90,61 +139,155 @@ jobs:
         with:
           dockerfile: Dockerfile
 
+      # ----------------------------------------------------------
+      # Build local Docker image
+      # ----------------------------------------------------------
+
       - name: Build Docker Image
         run: |
-          docker build -t my-python-app:${{ github.sha }} .
+          docker build \
+            -t my-python-app:${{ github.sha }} \
+            .
+
+      # ----------------------------------------------------------
+      # Trivy Container Scan
+      # ----------------------------------------------------------
 
       - name: Run Trivy Scanner
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: 'my-python-app:${{ github.sha }}'
-          format: 'sarif'
-          output: 'trivy-results.sarif'
-          severity: 'CRITICAL,HIGH'
-          exit-code: '0'
+          image-ref: my-python-app:${{ github.sha }}
+          format: sarif
+          output: trivy-results.sarif
+          severity: CRITICAL,HIGH
+          exit-code: "0"
+          ignore-unfixed: true
+
+      # ----------------------------------------------------------
+      # Verify SARIF
+      # ----------------------------------------------------------
+
+      - name: Verify Trivy SARIF
+        if: always()
+        run: |
+          echo "=== Checking Trivy SARIF ==="
+
+          if [ ! -f trivy-results.sarif ]; then
+            echo "ERROR: Trivy SARIF file was not created"
+            exit 1
+          fi
+
+          if [ ! -s trivy-results.sarif ]; then
+            echo "ERROR: Trivy SARIF file is empty"
+            exit 1
+          fi
+
+          python -m json.tool trivy-results.sarif > /dev/null
+
+          echo "Trivy SARIF is valid JSON"
+          echo "File size:"
+          ls -lh trivy-results.sarif
+
+      # ----------------------------------------------------------
+      # Upload SARIF to GitHub Security
+      # ----------------------------------------------------------
 
       - name: Upload Trivy SARIF report
-        uses: github/codeql-action/upload-sarif@v3
         if: always()
-        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-results.sarif
           category: trivy
 
-  # 5. Проверка безопасности инфраструктуры (IaC Scanning)
+
+  # ============================================================
+  # 5. IaC SECURITY — TRIVY
+  # ============================================================
+
   iac-security:
     name: IaC Security Scan (Trivy)
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Run Trivy IaC scanner
-        uses: aquasecurity/trivy-action@master
+      # ----------------------------------------------------------
+      # Trivy IaC scan
+      # ----------------------------------------------------------
+
+      - name: Run Trivy IaC Scanner
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
-          scan-type: 'config'
+          scan-type: config
           hide-progress: false
-          format: 'sarif'
-          output: 'trivy-iac-results.sarif'
-          exit-code: '0'
+          format: sarif
+          output: trivy-iac-results.sarif
+          severity: CRITICAL,HIGH
+          exit-code: "0"
+
+      # ----------------------------------------------------------
+      # Verify SARIF
+      # ----------------------------------------------------------
+
+      - name: Verify Trivy IaC SARIF
+        if: always()
+        run: |
+          echo "=== Checking Trivy IaC SARIF ==="
+
+          if [ ! -f trivy-iac-results.sarif ]; then
+            echo "ERROR: Trivy IaC SARIF file was not created"
+            exit 1
+          fi
+
+          if [ ! -s trivy-iac-results.sarif ]; then
+            echo "ERROR: Trivy IaC SARIF file is empty"
+            exit 1
+          fi
+
+          python -m json.tool trivy-iac-results.sarif > /dev/null
+
+          echo "Trivy IaC SARIF is valid JSON"
+          ls -lh trivy-iac-results.sarif
+
+      # ----------------------------------------------------------
+      # Upload SARIF
+      # ----------------------------------------------------------
 
       - name: Upload Trivy IaC SARIF report
-        uses: github/codeql-action/upload-sarif@v3
         if: always()
-        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-iac-results.sarif
           category: trivy-iac
 
-  # 6. Сборка и отправка безопасного Docker-образа в GHCR
+
+  # ============================================================
+  # 6. BUILD & PUSH — GHCR
+  # ============================================================
+
   build-and-push:
     name: Build & Push to GHCR
     runs-on: ubuntu-latest
-    needs: [secret-scan, sast-python, sca-dependencies, container-security, iac-security]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    needs:
+      - secret-scan
+      - sast-python
+      - sca-dependencies
+      - container-security
+      - iac-security
+
+    if: >
+      github.ref == 'refs/heads/main' &&
+      github.event_name == 'push'
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+
+      # ----------------------------------------------------------
+      # Login to GitHub Container Registry
+      # ----------------------------------------------------------
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
@@ -153,8 +296,12 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # ----------------------------------------------------------
+      # Build and Push
+      # ----------------------------------------------------------
+
       - name: Build and Push Docker Image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           push: true

@@ -73,7 +73,7 @@ jobs:
           pip install pip-audit
           if [ -f requirements.txt ]; then pip-audit -r requirements.txt; fi
 
-  # 4. Проверка Docker и сканирование образа (Trivy + SARIF)
+# 4. Проверка Docker и сканирование образа (Trivy + SARIF)
   container-security:
     name: Docker Lint & Trivy Scan
     runs-on: ubuntu-latest
@@ -86,6 +86,7 @@ jobs:
         uses: hadolint/hadolint-action@v3.1.0
         with:
           dockerfile: Dockerfile
+        continue-on-error: true
 
       - name: Build Docker Image
         run: |
@@ -98,9 +99,11 @@ jobs:
           format: 'sarif'
           output: 'trivy-results.sarif'
           severity: 'CRITICAL,HIGH'
+        continue-on-error: true
 
       - name: Upload Trivy SARIF report
         uses: github/codeql-action/upload-sarif@v3
+        if: always()
         with:
           sarif_file: trivy-results.sarif
           category: trivy

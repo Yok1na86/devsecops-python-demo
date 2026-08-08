@@ -93,6 +93,10 @@ jobs:
         run: |
           docker build -t my-python-app:${{ github.sha }} .
 
+      - name: Ensure SARIF File Exists
+        run: |
+          touch trivy-results.sarif
+
       - name: Run Trivy Scanner
         uses: aquasecurity/trivy-action@master
         continue-on-error: true

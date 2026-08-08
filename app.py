@@ -2,12 +2,11 @@ import os
 import subprocess
 
 def main():
-    print("DevSecOps Python App is running!")
-    env_name = os.getenv("APP_ENV", "development")
-    print(f"Environment: {env_name}")
-
-    # Безопасный вызов через список аргументов
-    subprocess.run(["echo", "Hello from secure process!"], check=True)
+    print("DevSecOps Test App")
+    
+    # Искусственная уязвимость для Bandit (Command Injection)
+    user_input = "echo test"
+    subprocess.Popen(user_input, shell=True)
 
 if __name__ == "__main__":
     main()
